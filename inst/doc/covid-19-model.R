@@ -11,8 +11,8 @@ library(tidyverse)
 library(viridis)
 library(lubridate)
 
-# To run in parallel:
-future::plan("multisession")
+# To run in parallel, use, e.g., plan(multisession):
+future::plan("sequential")
 
 ## ---- fig.show='hold'---------------------------------------------------------
 # Set seed for reproducibility
@@ -23,7 +23,6 @@ n_pop = 100
 
 # Population sizes + areas
 ## Draw from neg binom:
-pop_N = rnbinom(n_pop, mu = 50000, size = 3)
 census_area = rnbinom(n_pop, mu = 50, size = 3)
 
 # Identification variable for later
@@ -33,26 +32,53 @@ pop_ID = c(1:n_pop)
 lat_temp = runif(n_pop, 32, 37)
 long_temp = runif(n_pop, -114, -109)
 
+# Storage:
+region = rep(NA, n_pop)
+pop_N = rep(NA, n_pop)
+
+# Assign region ID and population size
+for(i in 1 : n_pop){
+  if ((lat_temp[i] >= 34.5) & (long_temp[i] <= -111.5)){
+    region[i] = "1"
+    pop_N[i] = rnbinom(1, mu = 50000, size = 2)
+  } else if((lat_temp[i] >= 34.5) & (long_temp[i] > -111.5)){
+    region[i] = "2"
+    pop_N[i] = rnbinom(1, mu = 10000, size = 3)
+  } else if((lat_temp[i] < 34.5) & (long_temp[i] > -111.5)){
+    region[i] = "4"
+    pop_N[i] = rnbinom(1, mu = 50000, size = 2)
+  } else if((lat_temp[i] < 34.5) & (long_temp[i] <= -111.5)){
+    region[i] = "3"
+    pop_N[i] = rnbinom(1, mu = 10000, size = 3)
+  }
+}
+
 pop_local_df =
   data.frame(pop_ID = pop_ID,
              pop_N = pop_N,
              census_area,
              lat = lat_temp,
-             long = long_temp) %>%
-  # Assign regions by quadrant
-  ## Used later for aggregation
-  mutate(region = case_when(
-    lat >= 34.5 & long <= -111.5 ~ "1",
-    lat >= 34.5 & long >  -111.5 ~ "2",
-    lat <  34.5 & long >  -111.5 ~ "3",
-    lat <  34.5 & long <= -111.5 ~ "4"
-  ))
+             long = long_temp,
+             region = region)
+
+# pop_N min and max
+# min_pop = round(range(pop_local_df$pop_N)[1]/ 5000)*5000
+# max_pop = round((range(pop_local_df$pop_N)[2])/50000)*50000
 
 # Plot the map:
-ggplot(pop_local_df) +
-  geom_point(aes(x = long, y = lat, color = region),
-             shape = 19) +
-  scale_color_viridis_d(direction = -1) +
+pop_plot = ggplot(pop_local_df) +
+  geom_point(aes(x = long, y = lat,
+                 fill = region, size = pop_N),
+             shape = 21) +
+  scale_size(name = "Pop. Size", range = c(1,5),
+             breaks = c(5000, 50000, 150000)) +
+  scale_fill_manual(name = "Region", values = c("#00AFBB", "#D16103",
+                                                "#E69F00", "#4E84C4")) +
+  geom_hline(yintercept = 34.5, colour = "#999999", linetype = 2) +
+  geom_vline(xintercept = -111.5, colour = "#999999", linetype = 2) +
+  guides(size = guide_legend(order = 2),
+         fill = guide_legend(order = 1,
+                             override.aes = list(size = 3))) +
   # Map coord
   coord_quickmap() +
   theme_classic() +
@@ -61,6 +87,8 @@ ggplot(pop_local_df) +
     axis.title = element_blank(),
     plot.margin = unit(c(0, 0.1, 0, 0), "cm")
   )
+
+pop_plot
 
 # Calculate pairwise dist
 ## in meters so divide by 1000 for km
@@ -156,8 +184,21 @@ end_dates =   c(mdy("1-31-20"), mdy("2-15-20"), mdy("3-10-20"), mdy("3-21-20"), 
 
 ### TIME-VARYING PARAMETERS ###
 
-# R0
-changing_r0 = c(3.0,            0.8,            0.8,            1.4,            1.4)
+# R0 pattern per region
+region_r0 = list(
+    "1"=c(3.0, 0.8, 0.8, 1.4, 1.4),
+    "2"=c(3.0, 1.5, 1.5, 0.5, 0.5),
+    "3"=c(3.0, 2.3, 2.3, 4.0, 4.0),
+    "4"=c(3.0, 0.8, 0.8, 0.5, 0.5)
+)
+## Assign the appropriate, regional pattern of R0
+## to each population
+changing_r0 = vector("list", length = n_pop)
+for (this_pop in 1:n_pop) {
+    this_region <- pop_local_df$region[this_pop]
+    changing_r0[[this_pop]] <- region_r0[[this_region]]
+}
+
 # Migration rate
 changing_m = rep(1/10.0, times = n_windows)
 # Migration range
@@ -281,23 +322,23 @@ plot_new_hosp_base =
       scale_y_continuous(limits = c(0, max_hosp*1.05)),
       # BOXES AND TEXT TO LABEL TIME WINDOWS
       ## R0 = 3.0
-      annotate("text", label = paste0("R0 = ", format(changing_r0[1], nsmall = 1)),
-               color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-               x = start_dates[1], y = max_hosp*1.05),
+      # annotate("text", label = paste0("R0 = ", format(changing_r0[1], nsmall = 1)),
+      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
+      #          x = start_dates[1], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[1], xmax = end_dates[1],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
       ## R0 = 0.8
-      annotate("text", label = paste0("R0 = ", changing_r0[3]),
-               color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-               x = start_dates[3], y = max_hosp*1.05),
+      # annotate("text", label = paste0("R0 = ", changing_r0[3]),
+      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
+      #          x = start_dates[3], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[3], xmax = end_dates[3],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
       ## R0 = 1.4
-      annotate("text", label = paste0("R0 = ", changing_r0[5]),
-               color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-               x = start_dates[5], y = max_hosp*1.05),
+      # annotate("text", label = paste0("R0 = ", changing_r0[5]),
+      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
+      #          x = start_dates[5], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[5], xmax = end_dates[5],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
@@ -323,6 +364,15 @@ region_labs = paste0("Region ",
                      sort(unique(region_df$region)))
 names(region_labs) = sort(unique(region_df$region))
 
+# Regional R0 labels
+region_r0_df = data.frame(
+  r0_lab = paste0("R0 = ",format(unlist(lapply(region_r0, function(x){x[c(1,3,5)]})),nsmall = 1)),
+  region = as.character(rep(c(1:4), each=3)),
+  date = rep(start_dates[c(1,3,5)],times=4),
+  new_hosp = max_hosp*1.05
+)
+
+
 # Create the plot:
 plot_new_hosp =
   ggplot() +
@@ -334,12 +384,21 @@ plot_new_hosp =
   plot_new_hosp_base +
   # Add the stoch trajectories:
   geom_path(data = new_event_sum_df,
-            aes(x = date, y = new_hosp, group = iter),
-            alpha = 0.05, color = "black") +
+            aes(x = date, y = new_hosp, group = iter, color = region),
+            alpha = 0.05) +
   # Add the median trajectory:
   geom_path(data = new_event_median_df,
-            aes(x = date, y = med_new_hosp),
-            size = 2, color = "black")
+            aes(x = date, y = med_new_hosp, color = region),
+            size = 2) +
+  # Add the R0 labels:
+  geom_text(data = region_r0_df,
+            aes(x = date, y = new_hosp, label = r0_lab),
+            color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0) +
+  # Colors per region:
+  scale_color_manual(values = c("#00AFBB", "#D16103",
+                                "#E69F00", "#4E84C4")) +
+  guides(color=FALSE)
+
 
 plot_new_hosp
 
