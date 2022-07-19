@@ -13,53 +13,55 @@ library(lubridate)
 # Set up the dates of change. 5 time windows
 n_windows = 5
 # Window intervals
-start_dates = c(mdy("1-1-20"),  mdy("2-1-20"),  mdy("2-16-20"), mdy("3-11-20"), mdy("3-22-20"))
-end_dates   = c(mdy("1-31-20"), mdy("2-15-20"), mdy("3-10-20"), mdy("3-21-20"), mdy("5-1-20"))
-# Time-varying R0
-changing_r0 = c(3.0,            0.8,            0.8,            1.4,            1.4)
+start_dates = c(mdy("1-1-20"),  mdy("2-1-20"),  mdy("2-16-20"), mdy("3-11-20"),  mdy("3-22-20"))
+end_dates =   c(mdy("1-31-20"), mdy("2-15-20"), mdy("3-10-20"), mdy("3-21-20"), mdy("5-1-20"))
 
-#R0 sequence
-r0_seq = NULL
+# Date sequence
+date_seq = seq.Date(start_dates[1], end_dates[n_windows], by = "1 day")
 
-r0_seq[1:(yday(end_dates[1]) - yday(start_dates[1]) + 1)] =
-  changing_r0[1]
+# Time-varying beta
+changing_beta = c(0.3,            0.1,            0.1,            0.15,            0.15)
+
+#beta sequence
+beta_seq = NULL
+
+beta_seq[1:(yday(end_dates[1]) - yday(start_dates[1]) + 1)] =
+  changing_beta[1]
 
 for(i in 2:n_windows){
 
-  r0_temp_seq = NULL
-  r0_temp = NULL
+  beta_temp_seq = NULL
+  beta_temp = NULL
 
-  if(changing_r0[i] != changing_r0[i-1]){
+  if(changing_beta[i] != changing_beta[i-1]){
 
-    r0_diff = changing_r0[i-1] - changing_r0[i]
+    beta_diff = changing_beta[i-1] - changing_beta[i]
     n_days = yday(end_dates[i]) - yday(start_dates[i]) + 1
-    r0_slope = - r0_diff / n_days
+    beta_slope = - beta_diff / n_days
 
     for(j in 1:n_days){
-      r0_temp_seq[j] = changing_r0[i-1] + r0_slope*j
+      beta_temp_seq[j] = changing_beta[i-1] + beta_slope*j
     }
 
   }else{
     n_days = yday(end_dates[i]) - yday(start_dates[i]) + 1
-    r0_temp_seq = rep(changing_r0[i], times = n_days)
+    beta_temp_seq = rep(changing_beta[i], times = n_days)
   }
 
-  r0_seq = c(r0_seq, r0_temp_seq)
+  beta_seq = c(beta_seq, beta_temp_seq)
 
 }
 
-# Create a data frame for plotting
-## Date sequence:
-date_seq = seq.Date(start_dates[1], end_dates[n_windows], by = "1 day")
-r0_seq_df = data.frame(r0_seq, date_seq)
+beta_seq_df = data.frame(beta_seq, date_seq)
 date_breaks = seq(range(date_seq)[1],
                   range(date_seq)[2],
                   by = "1 month")
 
-ggplot(r0_seq_df) +
-  geom_path(aes(x = date_seq, y = r0_seq)) +
+
+ggplot(beta_seq_df) +
+  geom_path(aes(x = date_seq, y = beta_seq)) +
   scale_x_date(breaks = date_breaks, date_labels = "%b") +
-  labs(x="", y="Time-varying R0") +
+  labs(x="", y=expression("Time-varying "*beta*", ("*beta[t]*")")) +
   # THEME
   theme_classic()+
   theme(
@@ -69,17 +71,18 @@ ggplot(r0_seq_df) +
   )
 
 
+
 ## ---- fig.width=5, echo=FALSE-------------------------------------------------
 
 # Distance between populations:
 dist_temp = seq(0, 300, length.out = 200)
-dist_param = c(50, 100, 200)
+dist_phi = c(50, 100, 200)
 
-p_move_func = function(dist_param, distance){
-  1 / (exp( distance / dist_param ))
+p_move_func = function(dist_phi, distance){
+  1 / (exp( distance / dist_phi ))
 }
 
-p_move_mat = sapply(dist_param,
+p_move_mat = sapply(dist_phi,
                     p_move_func, distance = dist_temp)
 p_move_df =
   data.frame(dist_ij = dist_temp, p_move_mat) %>%
@@ -95,7 +98,7 @@ ggplot(p_move_df) +
                 color = dp_val, group = dp_val)) +
   labs(x = "Distance between pops (km)",
        y = "Probability of migration") +
-  scale_color_viridis_d(name = "dist_param",
+  scale_color_viridis_d(name = expression(phi),
                         breaks = c("50", "100", "200"),
                         direction = -1) +
   theme_classic() +

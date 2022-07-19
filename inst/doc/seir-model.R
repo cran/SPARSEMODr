@@ -11,19 +11,18 @@ library(tidyverse)
 library(viridis)
 library(lubridate)
 
-# To run in parallel:
-future::plan("multisession")
+# To run in parallel, use, e.g., plan("multisession"):
+future::plan("sequential")
 
 ## ---- fig.show='hold'---------------------------------------------------------
 # Set seed for reproducibility
-set.seed(2)
+set.seed(5)
 
 # Number of focal populations:
-n_pop = 15
+n_pop = 100
 
 # Population sizes + areas
 ## Draw from neg binom:
-pop_N = rnbinom(n_pop, mu = 50000, size = 1)
 census_area = rnbinom(n_pop, mu = 50, size = 3)
 
 # Identification variable for later
@@ -33,26 +32,49 @@ pop_ID = c(1:n_pop)
 lat_temp = runif(n_pop, 32, 37)
 long_temp = runif(n_pop, -114, -109)
 
+# Storage:
+region = rep(NA, n_pop)
+pop_N = rep(NA, n_pop)
+
+# Assign region ID and population size
+for(i in 1 : n_pop){
+  if ((lat_temp[i] >= 34.5) & (long_temp[i] <= -111.5)){
+    region[i] = "1"
+    pop_N[i] = rnbinom(1, mu = 50000, size = 2)
+  } else if((lat_temp[i] >= 34.5) & (long_temp[i] > -111.5)){
+    region[i] = "2"
+    pop_N[i] = rnbinom(1, mu = 10000, size = 3)
+  } else if((lat_temp[i] < 34.5) & (long_temp[i] > -111.5)){
+    region[i] = "4"
+    pop_N[i] = rnbinom(1, mu = 50000, size = 2)
+  } else if((lat_temp[i] < 34.5) & (long_temp[i] <= -111.5)){
+    region[i] = "3"
+    pop_N[i] = rnbinom(1, mu = 10000, size = 3)
+  } 
+}
+
 pop_local_df =
   data.frame(pop_ID = pop_ID,
              pop_N = pop_N,
              census_area,
              lat = lat_temp,
-             long = long_temp) %>%
-  # Assign regions by quadrant
-  ## Used later for aggregation
-  mutate(region = case_when(
-    lat >= 34.5 & long <= -111.5 ~ "1",
-    lat >= 34.5 & long >  -111.5 ~ "2",
-    lat <  34.5 & long >  -111.5 ~ "3",
-    lat <  34.5 & long <= -111.5 ~ "4"
-  ))
+             long = long_temp,
+             region = region) 
 
 # Plot the map:
-ggplot(pop_local_df) +
-  geom_point(aes(x = long, y = lat, color = region),
-             shape = 19) +
-  scale_color_viridis_d(direction = -1) +
+pop_plot = ggplot(pop_local_df) +
+  geom_point(aes(x = long, y = lat, 
+                 fill = region, size = pop_N),
+             shape = 21) +
+  scale_size(name = "Pop. Size", range = c(1,5), 
+             breaks = c(5000, 50000, 150000)) +
+  scale_fill_manual(name = "Region", values = c("#00AFBB", "#D16103",
+                                                "#E69F00", "#4E84C4")) +
+  geom_hline(yintercept = 34.5, colour = "#999999", linetype = 2) +
+  geom_vline(xintercept = -111.5, colour = "#999999", linetype = 2) +
+  guides(size = guide_legend(order = 2), 
+         fill = guide_legend(order = 1, 
+                             override.aes = list(size = 3))) +
   # Map coord
   coord_quickmap() +
   theme_classic() +
@@ -61,6 +83,8 @@ ggplot(pop_local_df) +
     axis.title = element_blank(),
     plot.margin = unit(c(0, 0.1, 0, 0), "cm")
   )
+
+pop_plot
 
 # Calculate pairwise dist
 ## in meters so divide by 1000 for km
@@ -72,7 +96,7 @@ hist(dist_mat, xlab = "Distance (km)", main = "")
 E_pops = vector("numeric", length = n_pop)
 # We'll assume a total number of exposed across the
 # full meta-community, and then randomly distribute these hosts
-n_initial_E = 10
+n_initial_E = 20
 # (more exposed in larger populations)
 these_E <- sample.int(n_pop,
                       size = n_initial_E,
@@ -93,22 +117,22 @@ day_ID = rep(c(1:365), times = n_years)
 date_seq = seq.Date(mdy("1-1-90"),
                     mdy("1-1-90") + length(day_ID) - 1,
                     by = "1 day")
-# R0 peaks once every how many days?
+# \beta peaks once every how many days?
 t_mode = 365
-# Sinusoidal forcing in R0:
-r0_base = 2.5
-r0_seq = r0_base * (1 + cos((2*pi*day_ID)/t_mode))
+# Sinusoidal forcing in \beta:
+beta_base = 0.14
+beta_seq = beta_base * (1 + cos((2*pi*day_ID)/t_mode))
 
 # Data frame for plotting:
-r0_seq_df = data.frame(r0_seq, date_seq)
+beta_seq_df = data.frame(beta_seq, date_seq)
 date_breaks = seq(date_seq[1],
                   date_seq[1] + years(n_years),
                   by = "5 years")
 
-ggplot(r0_seq_df) +
-  geom_path(aes(x = date_seq, y = r0_seq)) +
+ggplot(beta_seq_df) +
+  geom_path(aes(x = date_seq, y = beta_seq)) +
   scale_x_date(breaks = date_breaks, date_labels = "%Y") +
-  labs(x="", y="Time-varying R0") +
+  labs(x="", y=expression("Time-varying "*beta*", ("*beta[t]*")")) +
   # THEME
   theme_classic()+
   theme(
@@ -122,20 +146,25 @@ ggplot(r0_seq_df) +
 # Set up the time_windows() function
 n_days = length(date_seq)
 
-# Time-varying R0
-changing_r0 = r0_seq
+# Time-varying beta
+changing_beta = vector("list", length = n_pop)
+for (this_pop in 1:n_pop) {
+    changing_beta[[this_pop]] <- beta_seq
+}
+
+
 # Migration rate
 changing_m = rep(1/10.0, times = n_days)
 # Migration range
-changing_dist_param = rep(100, times = n_days)
+changing_dist_phi = rep(100, times = n_days)
 # Immigration (none)
 changing_imm_frac = rep(0, times = n_days)
 
 # Create the time_window() object
 tw = time_windows(
-  r0 = changing_r0,
+  beta = changing_beta,
   m = changing_m,
-  dist_param = changing_dist_param,
+  dist_phi = changing_dist_phi,
   imm_frac = changing_imm_frac,
   daily = date_seq
 )
@@ -151,7 +180,7 @@ seir_control = seir_control(
 
 
 
-## -----------------------------------------------------------------------------
+## ---- message=FALSE, warning=FALSE--------------------------------------------
 # How many realizations of the model?
 n_realz = 30
 
@@ -170,7 +199,7 @@ model_output =
       input_realz_seeds = input_realz_seeds,
       # OTHER MODEL PARAMS
       trans_type = 1, # freq-dependent trans
-      stoch_sd = 0.75,  # stoch transmission sd,
+      stoch_sd = 0.85,  # stoch transmission sd,
       control = seir_control    # data structure with seir-specific params
   )
 
@@ -210,8 +239,6 @@ pops_sum_df =
 glimpse(pops_sum_df)
 
 
-
-
 ## ---- fig.height=5, fig.width=7, fig.align='center'---------------------------
 
 #######################
@@ -237,8 +264,12 @@ plot_base =
 
 plot_allyears =  
   ggplot(pops_sum_df) +
-  geom_path(aes(x = date, y = I, group = iter),
-            color = "black", alpha = 0.25) +
+  geom_path(aes(x = date, y = I, group = iter, color = region),
+            alpha = 0.25) +
+  # Colors per region:
+  scale_color_manual(values = c("#00AFBB", "#D16103", 
+                                "#E69F00", "#4E84C4")) +
+  guides(color="none") +
   facet_wrap(~region, scales = "fixed", ncol = 2,
              labeller = labeller(region = region_labs)) +
   plot_base

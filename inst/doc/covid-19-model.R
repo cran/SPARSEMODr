@@ -11,7 +11,7 @@ library(tidyverse)
 library(viridis)
 library(lubridate)
 
-# To run in parallel, use, e.g., plan(multisession):
+# To run in parallel, use, e.g., plan("multisession"):
 future::plan("sequential")
 
 ## ---- fig.show='hold'---------------------------------------------------------
@@ -50,7 +50,7 @@ for(i in 1 : n_pop){
   } else if((lat_temp[i] < 34.5) & (long_temp[i] <= -111.5)){
     region[i] = "3"
     pop_N[i] = rnbinom(1, mu = 10000, size = 3)
-  }
+  } 
 }
 
 pop_local_df =
@@ -59,25 +59,21 @@ pop_local_df =
              census_area,
              lat = lat_temp,
              long = long_temp,
-             region = region)
-
-# pop_N min and max
-# min_pop = round(range(pop_local_df$pop_N)[1]/ 5000)*5000
-# max_pop = round((range(pop_local_df$pop_N)[2])/50000)*50000
+             region = region) 
 
 # Plot the map:
 pop_plot = ggplot(pop_local_df) +
-  geom_point(aes(x = long, y = lat,
+  geom_point(aes(x = long, y = lat, 
                  fill = region, size = pop_N),
              shape = 21) +
-  scale_size(name = "Pop. Size", range = c(1,5),
+  scale_size(name = "Pop. Size", range = c(1,5), 
              breaks = c(5000, 50000, 150000)) +
   scale_fill_manual(name = "Region", values = c("#00AFBB", "#D16103",
                                                 "#E69F00", "#4E84C4")) +
   geom_hline(yintercept = 34.5, colour = "#999999", linetype = 2) +
   geom_vline(xintercept = -111.5, colour = "#999999", linetype = 2) +
-  guides(size = guide_legend(order = 2),
-         fill = guide_legend(order = 1,
+  guides(size = guide_legend(order = 2), 
+         fill = guide_legend(order = 1, 
                              override.aes = list(size = 3))) +
   # Map coord
   coord_quickmap() +
@@ -123,49 +119,49 @@ end_dates =   c(mdy("1-31-20"), mdy("2-15-20"), mdy("3-10-20"), mdy("3-21-20"), 
 # Date sequence
 date_seq = seq.Date(start_dates[1], end_dates[n_windows], by = "1 day")
 
-# Time-varying R0
-changing_r0 = c(3.0,            0.8,            0.8,            1.4,            1.4)
+# Time-varying beta
+changing_beta = c(0.3,            0.1,            0.1,            0.15,            0.15)
 
-#R0 sequence
-r0_seq = NULL
+#beta sequence
+beta_seq = NULL
 
-r0_seq[1:(yday(end_dates[1]) - yday(start_dates[1]) + 1)] =
-  changing_r0[1]
+beta_seq[1:(yday(end_dates[1]) - yday(start_dates[1]) + 1)] =
+  changing_beta[1]
 
 for(i in 2:n_windows){
 
-  r0_temp_seq = NULL
-  r0_temp = NULL
+  beta_temp_seq = NULL
+  beta_temp = NULL
 
-  if(changing_r0[i] != changing_r0[i-1]){
+  if(changing_beta[i] != changing_beta[i-1]){
 
-    r0_diff = changing_r0[i-1] - changing_r0[i]
+    beta_diff = changing_beta[i-1] - changing_beta[i]
     n_days = yday(end_dates[i]) - yday(start_dates[i]) + 1
-    r0_slope = - r0_diff / n_days
+    beta_slope = - beta_diff / n_days
 
     for(j in 1:n_days){
-      r0_temp_seq[j] = changing_r0[i-1] + r0_slope*j
+      beta_temp_seq[j] = changing_beta[i-1] + beta_slope*j
     }
 
   }else{
     n_days = yday(end_dates[i]) - yday(start_dates[i]) + 1
-    r0_temp_seq = rep(changing_r0[i], times = n_days)
+    beta_temp_seq = rep(changing_beta[i], times = n_days)
   }
 
-  r0_seq = c(r0_seq, r0_temp_seq)
+  beta_seq = c(beta_seq, beta_temp_seq)
 
 }
 
-r0_seq_df = data.frame(r0_seq, date_seq)
+beta_seq_df = data.frame(beta_seq, date_seq)
 date_breaks = seq(range(date_seq)[1],
                   range(date_seq)[2],
                   by = "1 month")
 
 
-ggplot(r0_seq_df) +
-  geom_path(aes(x = date_seq, y = r0_seq)) +
+ggplot(beta_seq_df) +
+  geom_path(aes(x = date_seq, y = beta_seq)) +
   scale_x_date(breaks = date_breaks, date_labels = "%b") +
-  labs(x="", y="Time-varying R0") +
+  labs(x="", y=expression("Time-varying "*beta*", ("*beta[t]*")")) +
   # THEME
   theme_classic()+
   theme(
@@ -184,33 +180,34 @@ end_dates =   c(mdy("1-31-20"), mdy("2-15-20"), mdy("3-10-20"), mdy("3-21-20"), 
 
 ### TIME-VARYING PARAMETERS ###
 
-# R0 pattern per region
-region_r0 = list(
-    "1"=c(3.0, 0.8, 0.8, 1.4, 1.4),
-    "2"=c(3.0, 1.5, 1.5, 0.5, 0.5),
-    "3"=c(3.0, 2.3, 2.3, 4.0, 4.0),
-    "4"=c(3.0, 0.8, 0.8, 0.5, 0.5)
+# beta pattern per region
+region_beta = list(
+    "1"=c(0.30, 0.10, 0.10, 0.15, 0.15),
+    "2"=c(0.30, 0.08, 0.08, 0.10, 0.10),
+    "3"=c(0.30, 0.12, 0.12, 0.19, 0.19),
+    "4"=c(0.30, 0.03, 0.03, 0.12, 0.12)
 )
-## Assign the appropriate, regional pattern of R0
+
+## Assign the appropriate, regional pattern of beta
 ## to each population
-changing_r0 = vector("list", length = n_pop)
+changing_beta = vector("list", length = n_pop)
 for (this_pop in 1:n_pop) {
     this_region <- pop_local_df$region[this_pop]
-    changing_r0[[this_pop]] <- region_r0[[this_region]]
+    changing_beta[[this_pop]] <- region_beta[[this_region]]
 }
 
 # Migration rate
 changing_m = rep(1/10.0, times = n_windows)
 # Migration range
-changing_dist_param = rep(150, times = n_windows)
+changing_dist_phi = rep(150, times = n_windows)
 # Immigration (none)
 changing_imm_frac = rep(0, times = n_windows)
 
 # Create the time_window() object
 tw = time_windows(
-  r0 = changing_r0,
+  beta = changing_beta,
   m = changing_m,
-  dist_param = changing_dist_param,
+  dist_phi = changing_dist_phi,
   imm_frac = changing_imm_frac,
 
   start_dates = start_dates,
@@ -321,24 +318,12 @@ plot_new_hosp_base =
       # New Hosp Range:
       scale_y_continuous(limits = c(0, max_hosp*1.05)),
       # BOXES AND TEXT TO LABEL TIME WINDOWS
-      ## R0 = 3.0
-      # annotate("text", label = paste0("R0 = ", format(changing_r0[1], nsmall = 1)),
-      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-      #          x = start_dates[1], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[1], xmax = end_dates[1],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
-      ## R0 = 0.8
-      # annotate("text", label = paste0("R0 = ", changing_r0[3]),
-      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-      #          x = start_dates[3], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[3], xmax = end_dates[3],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
-      ## R0 = 1.4
-      # annotate("text", label = paste0("R0 = ", changing_r0[5]),
-      #          color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0,
-      #          x = start_dates[5], y = max_hosp*1.05),
       annotate("rect", xmin = start_dates[5], xmax = end_dates[5],
                ymin = 0, ymax = max_hosp*1.05,
                fill = "gray", alpha = 0.2),
@@ -364,14 +349,14 @@ region_labs = paste0("Region ",
                      sort(unique(region_df$region)))
 names(region_labs) = sort(unique(region_df$region))
 
-# Regional R0 labels
-region_r0_df = data.frame(
-  r0_lab = paste0("R0 = ",format(unlist(lapply(region_r0, function(x){x[c(1,3,5)]})),nsmall = 1)),
+# Regional beta labels
+region_beta_df = data.frame(
+  beta_lab = paste0("beta = ",format(unlist(lapply(region_beta, function(x){x[c(1,3,5)]})),nsmall = 1)),
   region = as.character(rep(c(1:4), each=3)),
   date = rep(start_dates[c(1,3,5)],times=4),
   new_hosp = max_hosp*1.05
 )
-
+  
 
 # Create the plot:
 plot_new_hosp =
@@ -390,14 +375,14 @@ plot_new_hosp =
   geom_path(data = new_event_median_df,
             aes(x = date, y = med_new_hosp, color = region),
             size = 2) +
-  # Add the R0 labels:
-  geom_text(data = region_r0_df,
-            aes(x = date, y = new_hosp, label = r0_lab),
+  # Add the beta labels:
+  geom_text(data = region_beta_df,
+            aes(x = date, y = new_hosp, label = beta_lab),
             color = "#39558CFF", hjust = 0, vjust = 1, size = 3.0) +
   # Colors per region:
-  scale_color_manual(values = c("#00AFBB", "#D16103",
+  scale_color_manual(values = c("#00AFBB", "#D16103", 
                                 "#E69F00", "#4E84C4")) +
-  guides(color=FALSE)
+  guides(color="none")
 
 
 plot_new_hosp
